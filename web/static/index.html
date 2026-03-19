@@ -1,0 +1,1884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trajectory Viewer & Annotator</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1b26;
+  --surface2: #24283b;
+  --border: #2f3348;
+  --text: #c9d1d9;
+  --text-dim: #8b949e;
+  --accent: #7aa2f7;
+  --accent-hover: #89b4fa;
+  --green: #9ece6a;
+  --red: #f7768e;
+  --yellow: #e0af68;
+  --orange: #ff9e64;
+  --purple: #bb9af7;
+  --radius: 8px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* --- Top Nav --- */
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  height: 48px;
+  flex-shrink: 0;
+}
+.top-bar .logo {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--accent);
+  margin-right: 24px;
+  white-space: nowrap;
+}
+.tab-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 12px 18px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* --- Main content --- */
+.tab-content {
+  display: none;
+  flex: 1;
+  overflow: hidden;
+}
+.tab-content.active { display: flex; flex-direction: column; }
+
+/* --- Common --- */
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+button:hover { background: var(--accent-hover); }
+button.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+button.secondary:hover { background: var(--border); }
+button.danger { background: var(--red); }
+
+input, select, textarea {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+textarea { resize: vertical; font-family: inherit; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge-pass { background: rgba(158,206,106,0.2); color: var(--green); }
+.badge-fail { background: rgba(247,118,142,0.2); color: var(--red); }
+.badge-unknown { background: rgba(139,148,158,0.2); color: var(--text-dim); }
+.badge-agent { background: rgba(122,162,247,0.15); color: var(--accent); }
+.badge-demo { background: rgba(187,154,247,0.15); color: var(--purple); }
+.badge-annotated { background: rgba(158,206,106,0.15); color: var(--green); }
+.badge-unannotated { background: rgba(224,175,104,0.15); color: var(--yellow); }
+
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot-green { background: var(--green); }
+.dot-yellow { background: var(--yellow); }
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--surface2);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  padding: 12px 20px;
+  border-radius: var(--radius);
+  z-index: 1000;
+  animation: fadeIn 0.3s;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* --- Browse tab --- */
+.browse-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+.run-list-panel {
+  width: 300px;
+  min-width: 240px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.filter-bar {
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.filter-bar input { flex: 1; min-width: 120px; }
+.filter-bar select { min-width: 100px; }
+
+.run-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.run-group-header {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+}
+.run-group-header:hover { background: var(--surface2); }
+.run-group-header .count { color: var(--text-dim); font-weight: 400; }
+.run-row {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  transition: background 0.1s;
+}
+.run-row:hover { background: var(--surface2); }
+.run-row.selected { background: var(--surface2); border-left: 3px solid var(--accent); }
+.run-row .task-id {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+  font-size: 12px;
+}
+.run-row .steps { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
+
+/* --- Slideshow panel --- */
+.slideshow-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.slideshow-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 15px;
+}
+.slideshow-header {
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.slideshow-header .step-counter { font-weight: 600; white-space: nowrap; }
+.slideshow-nav { display: flex; gap: 4px; }
+.slideshow-nav button { padding: 4px 10px; font-size: 12px; }
+.progress-bar-container {
+  flex: 1;
+  min-width: 100px;
+  height: 6px;
+  background: var(--surface2);
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: pointer;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s;
+  border-radius: 3px;
+}
+
+.slideshow-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.screenshot-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: hidden;
+  position: relative;
+}
+.screenshot-area img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+}
+.screenshot-area img.zoomed {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.info-panel {
+  width: 300px;
+  min-width: 220px;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.info-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+.info-section h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.info-section pre {
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  max-height: 300px;
+  overflow-y: auto;
+}
+.info-section p {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* --- Annotate tab --- */
+.annotate-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+.annotate-controls {
+  width: 300px;
+  min-width: 240px;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.annotate-controls .field { margin-bottom: 8px; }
+.annotate-controls label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.radio-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: all 0.15s;
+}
+.radio-group label:hover { border-color: var(--accent); }
+.radio-group input[type="radio"]:checked + span,
+.radio-group label:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(122,162,247,0.1);
+}
+.radio-group input[type="radio"] { display: none; }
+
+.timer-display {
+  font-family: monospace;
+  font-size: 14px;
+  color: var(--yellow);
+}
+.rubric-item {
+  padding: 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.rubric-item.pass { border-color: var(--green); background: rgba(158,206,106,0.08); }
+.rubric-item.fail { border-color: var(--red); background: rgba(247,118,142,0.08); }
+.rubric-item .rubric-id { font-weight: 600; color: var(--accent); margin-right: 6px; }
+.rubric-item .rubric-req { color: var(--text); line-height: 1.4; }
+.rubric-item .rubric-verify { color: var(--text-dim); font-size: 11px; margin-top: 4px; }
+.rubric-item .rubric-btns { display: flex; gap: 6px; margin-top: 6px; }
+.rubric-item .rubric-btns button {
+  padding: 3px 12px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--text);
+}
+.rubric-item .rubric-btns button.active-pass { background: var(--green); color: #1a1b26; border-color: var(--green); }
+.rubric-item .rubric-btns button.active-fail { background: var(--red); color: #1a1b26; border-color: var(--red); }
+
+/* --- Record tab --- */
+.record-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  flex-direction: column;
+}
+.record-topbar {
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.record-topbar input { min-width: 140px; }
+.record-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.record-screenshot-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  position: relative;
+  overflow: hidden;
+}
+.record-screenshot-area img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: crosshair;
+}
+.crosshair {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--red);
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  display: none;
+}
+.coord-tooltip {
+  position: absolute;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: monospace;
+  border-radius: 4px;
+  pointer-events: none;
+  display: none;
+}
+.action-palette {
+  padding: 12px 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.action-palette .action-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.record-sidebar {
+  width: 240px;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 8px;
+}
+.record-sidebar h4 {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 4px 0;
+  margin-bottom: 4px;
+}
+.step-thumb {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 4px;
+  cursor: pointer;
+  align-items: center;
+  font-size: 11px;
+}
+.step-thumb:hover { background: var(--surface2); }
+.step-thumb img { width: 60px; height: 34px; object-fit: cover; border-radius: 3px; }
+
+/* --- Dashboard tab --- */
+.dashboard-layout {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-content: start;
+}
+.dash-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.dash-card.wide { grid-column: 1 / -1; }
+.dash-card h3 {
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.dash-big-num {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.dash-progress {
+  height: 8px;
+  background: var(--surface2);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+.dash-progress-fill { height: 100%; background: var(--green); border-radius: 4px; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bar-chart .bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.bar-chart .bar-label { width: 160px; font-size: 12px; text-align: right; }
+.bar-chart .bar-track { flex: 1; height: 20px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
+.bar-chart .bar-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.3s; }
+.bar-chart .bar-value { width: 40px; font-size: 12px; color: var(--text-dim); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* Task intent display */
+.intent-text {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+  max-height: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>
+</head>
+<body>
+
+<!-- Top Navigation -->
+<div class="top-bar">
+  <span class="logo">Trajectory Viewer</span>
+  <button class="tab-btn active" data-tab="browse">Browse</button>
+  <button class="tab-btn" data-tab="annotate">Annotate</button>
+  <button class="tab-btn" data-tab="record">Record Demo</button>
+  <button class="tab-btn" data-tab="dashboard">Dashboard</button>
+</div>
+
+<!-- ==================== TAB 1: BROWSE ==================== -->
+<div class="tab-content active" id="tab-browse">
+  <div class="browse-layout">
+    <div class="run-list-panel">
+      <div class="filter-bar">
+        <input type="text" id="browse-search" placeholder="Search task ID, model...">
+        <select id="browse-model-filter">
+          <option value="all">All Models</option>
+        </select>
+        <select id="browse-source-filter">
+          <option value="all">All Sources</option>
+          <option value="agent">Agent Runs</option>
+          <option value="human_demo">Human Demos</option>
+        </select>
+        <select id="browse-status-filter">
+          <option value="all">All Status</option>
+          <option value="annotated">Annotated</option>
+          <option value="unannotated">Unannotated</option>
+        </select>
+        <button id="browse-refresh" class="secondary" title="Refresh runs">&#8635;</button>
+      </div>
+      <div class="run-list" id="browse-run-list"></div>
+    </div>
+    <div class="slideshow-panel" id="browse-slideshow">
+      <div class="slideshow-empty">Select a run to view</div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== TAB 2: ANNOTATE ==================== -->
+<div class="tab-content" id="tab-annotate">
+  <div class="annotate-layout">
+    <div class="run-list-panel">
+      <div class="filter-bar">
+        <input type="text" id="annotate-search" placeholder="Search...">
+        <select id="annotate-model-filter">
+          <option value="all">All Models</option>
+        </select>
+        <select id="annotate-source-filter">
+          <option value="all">All Sources</option>
+          <option value="agent">Agent Runs</option>
+          <option value="human_demo">Human Demos</option>
+        </select>
+        <select id="annotate-status-filter">
+          <option value="unannotated">Unannotated First</option>
+          <option value="all">All</option>
+          <option value="annotated">Annotated</option>
+        </select>
+      </div>
+      <div class="run-list" id="annotate-run-list"></div>
+    </div>
+    <div class="slideshow-panel" id="annotate-slideshow">
+      <div class="slideshow-empty">Select a run to annotate</div>
+    </div>
+    <div class="annotate-controls" id="annotate-controls" style="display:none">
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <h3 style="font-size:14px">Annotation</h3>
+        <span class="timer-display" id="annotate-timer">00:00</span>
+      </div>
+
+      <div class="info-section" id="annotate-task-info"></div>
+      <div class="info-section" id="annotate-judge-info" style="display:none"></div>
+
+      <div class="info-section">
+        <h4>Step Verdict</h4>
+        <div class="radio-group" id="step-verdict">
+          <label><input type="radio" name="step-verdict" value="correct"><span>Correct</span></label>
+          <label><input type="radio" name="step-verdict" value="incorrect"><span>Incorrect</span></label>
+          <label><input type="radio" name="step-verdict" value="ambiguous"><span>Ambiguous</span></label>
+        </div>
+        <div class="field" style="margin-top:8px">
+          <label>Note</label>
+          <input type="text" id="step-note" placeholder="Optional note" style="width:100%">
+        </div>
+      </div>
+
+      <!-- Rubric grading: populated dynamically from task rubric -->
+      <div class="info-section" id="rubric-grading-section" style="display:none">
+        <h4>Rubric</h4>
+        <div id="rubric-items-container"></div>
+      </div>
+
+      <!-- Final Assessment: only visible on last step -->
+      <div class="info-section" id="final-assessment-section" style="display:none">
+        <h4>Final Assessment</h4>
+        <div class="field">
+          <label>Success</label>
+          <div class="radio-group" id="task-success">
+            <label><input type="radio" name="task-success" value="yes"><span>Yes</span></label>
+            <label><input type="radio" name="task-success" value="no"><span>No</span></label>
+          </div>
+        </div>
+        <div class="field">
+          <label>Failure Mode</label>
+          <select id="failure-mode" style="width:100%">
+            <option value="">-- select --</option>
+            <option value="correct_completion">Correct Completion</option>
+            <option value="early_stop">Early Stop</option>
+            <option value="wrong_action_sequence">Wrong Action Sequence</option>
+            <option value="navigation_failure">Navigation Failure</option>
+            <option value="interaction_failure">Interaction Failure</option>
+            <option value="timeout">Timeout</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Reasoning</label>
+          <textarea id="task-reasoning" rows="3" style="width:100%" placeholder="Why did the run succeed/fail?"></textarea>
+        </div>
+        <div class="field">
+          <label>Annotator</label>
+          <input type="text" id="annotator-name" style="width:100%" placeholder="Your name">
+        </div>
+        <button id="submit-annotation" style="width:100%; padding:10px; margin-top:8px">Submit Annotation</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== TAB 3: RECORD DEMO ==================== -->
+<div class="tab-content" id="tab-record">
+  <div class="record-layout">
+    <div class="record-topbar">
+      <select id="record-task-select" style="flex:1; max-width:500px">
+        <option value="">-- Select a task --</option>
+      </select>
+      <input type="text" id="record-task-id" placeholder="Task ID" style="width:180px" readonly>
+      <input type="text" id="record-url" placeholder="Start URL" style="width:240px">
+      <input type="text" id="record-annotator" placeholder="Your name" style="width:120px">
+      <button id="record-start-btn">Start Recording</button>
+    </div>
+    <div class="record-body">
+      <div class="record-screenshot-area" id="record-screenshot-area">
+        <div style="color:var(--text-dim)">Start a recording to see the browser</div>
+        <div class="crosshair" id="record-crosshair"></div>
+        <div class="coord-tooltip" id="record-coord-tooltip"></div>
+      </div>
+      <div class="record-sidebar" id="record-sidebar" style="display:none">
+        <h4>Steps</h4>
+        <div id="record-steps-list"></div>
+      </div>
+    </div>
+    <div class="action-palette" id="record-action-palette" style="display:none">
+      <div class="action-group">
+        <span style="font-size:12px;color:var(--text-dim)">Click:</span>
+        <span id="record-click-coords" style="font-family:monospace;font-size:12px">(-,-)</span>
+        <button id="record-click-btn" class="secondary" style="font-size:12px">Confirm Click</button>
+      </div>
+      <div class="action-group">
+        <span style="font-size:12px;color:var(--text-dim)">Type:</span>
+        <input type="text" id="record-type-text" placeholder="Text to type" style="width:160px">
+        <button id="record-type-btn" class="secondary" style="font-size:12px">Send</button>
+      </div>
+      <div class="action-group">
+        <span style="font-size:12px;color:var(--text-dim)">Scroll:</span>
+        <button id="record-scroll-up" class="secondary" style="font-size:12px">Up</button>
+        <button id="record-scroll-down" class="secondary" style="font-size:12px">Down</button>
+        <input type="number" id="record-scroll-amount" value="300" style="width:60px" title="Pixels">
+      </div>
+      <div class="action-group">
+        <span style="font-size:12px;color:var(--text-dim)">Nav:</span>
+        <input type="text" id="record-nav-url" placeholder="URL" style="width:160px">
+        <button id="record-nav-btn" class="secondary" style="font-size:12px">Go</button>
+      </div>
+      <div class="action-group">
+        <span style="font-size:12px;color:var(--text-dim)">Key:</span>
+        <select id="record-key-select">
+          <option value="Enter">Enter</option>
+          <option value="Tab">Tab</option>
+          <option value="Escape">Escape</option>
+          <option value="Backspace">Backspace</option>
+          <option value="ArrowUp">ArrowUp</option>
+          <option value="ArrowDown">ArrowDown</option>
+          <option value="ArrowLeft">ArrowLeft</option>
+          <option value="ArrowRight">ArrowRight</option>
+        </select>
+        <button id="record-key-btn" class="secondary" style="font-size:12px">Press</button>
+      </div>
+      <div class="action-group" style="border-left:2px solid var(--red);padding-left:8px">
+        <span style="font-size:12px;color:var(--red)">Terminate:</span>
+        <input type="text" id="record-terminate-response" placeholder="Final response / answer" style="width:200px">
+        <button id="record-terminate-btn" class="danger" style="font-size:12px">End Task</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== TAB 4: DASHBOARD ==================== -->
+<div class="tab-content" id="tab-dashboard">
+  <div class="dashboard-layout" id="dashboard-content">
+    <div class="dash-card">
+      <h3>Annotation Progress</h3>
+      <div id="dash-progress"></div>
+    </div>
+    <div class="dash-card">
+      <h3>Run Stats</h3>
+      <div id="dash-run-stats"></div>
+    </div>
+    <div class="dash-card wide">
+      <h3>Per-Model Performance</h3>
+      <div id="dash-model-table"></div>
+    </div>
+    <div class="dash-card">
+      <h3>Failure Modes</h3>
+      <div id="dash-failure-modes" class="bar-chart"></div>
+    </div>
+    <div class="dash-card">
+      <h3>Demo Stats</h3>
+      <div id="dash-demo-stats"></div>
+    </div>
+    <div class="dash-card wide">
+      <h3>Recent Annotations</h3>
+      <div id="dash-recent" style="max-height:300px;overflow-y:auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== JAVASCRIPT ==================== -->
+<script>
+// --- State ---
+let allRuns = [];
+let allTasks = [];
+let allModels = [];
+let currentBrowseRun = null;
+let currentBrowseSteps = [];
+let currentBrowseSummary = {};
+let currentBrowseStep = 0;
+
+let currentAnnotateRun = null;
+let currentAnnotateSteps = [];
+let currentAnnotateStep = 0;
+let annotateTimer = null;
+let annotateStartTime = null;
+let stepAnnotations = {};
+let rubricGrades = {};  // { rubric_id: { grade: 'pass'|'fail', step: number } }
+let currentTaskRubric = [];  // rubric items from task_info
+
+let recordWs = null;
+let recordClickCoords = null;
+let recordSteps = [];
+
+// --- Init ---
+document.addEventListener('DOMContentLoaded', () => {
+  // Restore annotator name
+  const savedName = localStorage.getItem('annotator_name');
+  if (savedName) {
+    document.getElementById('annotator-name').value = savedName;
+    document.getElementById('record-annotator').value = savedName;
+  }
+
+  // Tab switching
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      if (btn.dataset.tab === 'dashboard') loadDashboard();
+    });
+  });
+
+  // Load runs + tasks + models
+  loadRuns();
+  loadTasks();
+
+  // Browse filters
+  document.getElementById('browse-search').addEventListener('input', renderBrowseList);
+  document.getElementById('browse-model-filter').addEventListener('change', renderBrowseList);
+  document.getElementById('browse-source-filter').addEventListener('change', renderBrowseList);
+  document.getElementById('browse-status-filter').addEventListener('change', renderBrowseList);
+  document.getElementById('browse-refresh').addEventListener('click', () => loadRuns(true));
+
+  // Annotate filters
+  document.getElementById('annotate-search').addEventListener('input', renderAnnotateList);
+  document.getElementById('annotate-model-filter').addEventListener('change', renderAnnotateList);
+  document.getElementById('annotate-source-filter').addEventListener('change', renderAnnotateList);
+  document.getElementById('annotate-status-filter').addEventListener('change', renderAnnotateList);
+
+  // Step verdict radio — just save, no correction form
+  document.querySelectorAll('input[name="step-verdict"]').forEach(r => {
+    r.addEventListener('change', () => saveCurrentStepAnnotation());
+  });
+  document.getElementById('step-note').addEventListener('input', saveCurrentStepAnnotation);
+
+  // Submit annotation
+  document.getElementById('submit-annotation').addEventListener('click', submitAnnotation);
+
+  // Record task selector
+  document.getElementById('record-task-select').addEventListener('change', onRecordTaskSelect);
+
+  // Record controls
+  document.getElementById('record-start-btn').addEventListener('click', startRecording);
+  document.getElementById('record-click-btn').addEventListener('click', sendClickAction);
+  document.getElementById('record-type-btn').addEventListener('click', sendTypeAction);
+  document.getElementById('record-scroll-up').addEventListener('click', () => sendScrollAction(0, -getScrollAmount()));
+  document.getElementById('record-scroll-down').addEventListener('click', () => sendScrollAction(0, getScrollAmount()));
+  document.getElementById('record-nav-btn').addEventListener('click', sendNavAction);
+  document.getElementById('record-key-btn').addEventListener('click', sendKeyAction);
+  document.getElementById('record-terminate-btn').addEventListener('click', sendTerminateAction);
+
+  // Keyboard nav
+  document.addEventListener('keydown', handleKeyNav);
+});
+
+// --- API helpers ---
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  return res.json();
+}
+
+// --- Load runs ---
+async function loadRuns(refresh = false) {
+  const url = refresh ? '/api/runs/refresh' : '/api/runs';
+  const data = await api(url);
+  allRuns = data.runs || [];
+
+  // Extract unique models and populate model dropdowns
+  const agentModels = [...new Set(allRuns.filter(r => r.source === 'agent').map(r => r.model))].sort();
+  const demoAnnotators = [...new Set(allRuns.filter(r => r.source === 'human_demo').map(r => r.model))].sort();
+  allModels = [...agentModels, ...demoAnnotators];
+  populateModelDropdowns(agentModels, demoAnnotators);
+
+  renderBrowseList();
+  renderAnnotateList();
+  if (refresh) showToast('Runs refreshed: ' + allRuns.length + ' found');
+}
+
+function populateModelDropdowns(agentModels, demoAnnotators) {
+  ['browse-model-filter', 'annotate-model-filter'].forEach(id => {
+    const sel = document.getElementById(id);
+    const current = sel.value;
+    sel.innerHTML = '<option value="all">All Models</option>';
+    if (agentModels.length) {
+      const group1 = document.createElement('optgroup');
+      group1.label = 'Agent Models';
+      agentModels.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        group1.appendChild(opt);
+      });
+      sel.appendChild(group1);
+    }
+    if (demoAnnotators.length) {
+      const group2 = document.createElement('optgroup');
+      group2.label = 'Human Annotators';
+      demoAnnotators.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        group2.appendChild(opt);
+      });
+      sel.appendChild(group2);
+    }
+    sel.value = current || 'all';
+  });
+}
+
+// --- Load tasks for Record Demo ---
+async function loadTasks() {
+  const data = await api('/api/tasks');
+  allTasks = data.tasks || [];
+
+  const sel = document.getElementById('record-task-select');
+  sel.innerHTML = '<option value="">-- Select a task --</option>';
+  allTasks.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.task_id;
+    // Show truncated task description
+    const desc = t.confirmed_task || t.task_id;
+    const truncated = desc.length > 100 ? desc.substring(0, 100) + '...' : desc;
+    opt.textContent = `[${t.level || '?'}] ${truncated}`;
+    opt.dataset.url = t.website || '';
+    opt.title = desc; // full text on hover
+    sel.appendChild(opt);
+  });
+}
+
+function onRecordTaskSelect() {
+  const sel = document.getElementById('record-task-select');
+  const taskId = sel.value;
+  if (!taskId) return;
+
+  document.getElementById('record-task-id').value = taskId;
+  // Auto-fill URL from task
+  const opt = sel.selectedOptions[0];
+  if (opt && opt.dataset.url) {
+    document.getElementById('record-url').value = opt.dataset.url;
+  }
+}
+
+// --- Filter logic ---
+function filterRuns(search, sourceFilter, statusFilter, modelFilter) {
+  let filtered = allRuns;
+  if (search) {
+    const q = search.toLowerCase();
+    filtered = filtered.filter(r =>
+      r.task_id.toLowerCase().includes(q) ||
+      r.model.toLowerCase().includes(q) ||
+      r.benchmark.toLowerCase().includes(q) ||
+      (r.intent || '').toLowerCase().includes(q)
+    );
+  }
+  if (modelFilter && modelFilter !== 'all') {
+    filtered = filtered.filter(r => r.model === modelFilter);
+  }
+  if (sourceFilter && sourceFilter !== 'all') {
+    filtered = filtered.filter(r => r.source === sourceFilter);
+  }
+  if (statusFilter && statusFilter !== 'all') {
+    filtered = filtered.filter(r => r.annotation_status === statusFilter);
+  }
+  return filtered;
+}
+
+// --- Browse list ---
+function renderBrowseList() {
+  const search = document.getElementById('browse-search').value;
+  const model = document.getElementById('browse-model-filter').value;
+  const source = document.getElementById('browse-source-filter').value;
+  const status = document.getElementById('browse-status-filter').value;
+  const filtered = filterRuns(search, source, status, model);
+
+  const container = document.getElementById('browse-run-list');
+  container.innerHTML = '';
+
+  // Group by benchmark > model
+  const groups = {};
+  filtered.forEach(r => {
+    const key = r.benchmark + ' / ' + r.model;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(r);
+  });
+
+  for (const [groupName, runs] of Object.entries(groups)) {
+    const header = document.createElement('div');
+    header.className = 'run-group-header';
+    header.innerHTML = `<span>${groupName}</span><span class="count">${runs.length}</span>`;
+    header.addEventListener('click', () => {
+      let sib = header.nextElementSibling;
+      while (sib && sib.classList.contains('run-row')) {
+        sib.style.display = sib.style.display === 'none' ? 'flex' : 'none';
+        sib = sib.nextElementSibling;
+      }
+    });
+    container.appendChild(header);
+
+    runs.forEach(r => {
+      const row = document.createElement('div');
+      row.className = 'run-row';
+      if (currentBrowseRun && currentBrowseRun.run_id === r.run_id) row.classList.add('selected');
+
+      const scoreBadge = r.score !== null && r.score !== undefined
+        ? (r.score > 0 ? '<span class="badge badge-pass">PASS</span>' : '<span class="badge badge-fail">FAIL</span>')
+        : '<span class="badge badge-unknown">?</span>';
+      const sourceBadge = r.source === 'agent'
+        ? '<span class="badge badge-agent">agent</span>'
+        : '<span class="badge badge-demo">demo</span>';
+      const annDot = r.annotation_status === 'annotated'
+        ? '<span class="dot dot-green" title="Annotated"></span>'
+        : '<span class="dot dot-yellow" title="Unannotated"></span>';
+
+      row.innerHTML = `
+        ${sourceBadge}
+        <span class="task-id" title="${escapeHtml(r.intent || r.task_id)}">${r.task_id.substring(0, 12)}...</span>
+        ${scoreBadge}
+        <span class="steps">${r.step_count}s</span>
+        ${annDot}
+      `;
+      row.addEventListener('click', () => openBrowseRun(r, row));
+      container.appendChild(row);
+    });
+  }
+}
+
+// --- Open run in browse ---
+async function openBrowseRun(run, rowEl) {
+  currentBrowseRun = run;
+  currentBrowseStep = 0;
+
+  document.querySelectorAll('#browse-run-list .run-row').forEach(r => r.classList.remove('selected'));
+  if (rowEl) rowEl.classList.add('selected');
+
+  const data = await api(`/api/trajectory/${run.run_id}?source=${run.source}`);
+  currentBrowseSteps = data.steps || [];
+  currentBrowseSummary = data.summary_info || {};
+
+  renderBrowseSlideshow(data);
+}
+
+function renderBrowseSlideshow(trajData) {
+  const panel = document.getElementById('browse-slideshow');
+  if (!currentBrowseSteps.length) {
+    panel.innerHTML = '<div class="slideshow-empty">No steps found</div>';
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="slideshow-header">
+      <div class="slideshow-nav">
+        <button class="secondary" onclick="browseNav(-1)">&larr;</button>
+        <button class="secondary" onclick="browseNav(1)">&rarr;</button>
+      </div>
+      <span class="step-counter" id="browse-step-counter"></span>
+      <div class="progress-bar-container" id="browse-progress-bar">
+        <div class="progress-bar-fill" id="browse-progress-fill"></div>
+      </div>
+    </div>
+    <div class="slideshow-body">
+      <div class="screenshot-area" id="browse-screenshot-area">
+        <img id="browse-screenshot" src="" alt="Screenshot">
+      </div>
+      <div class="info-panel" id="browse-info-panel"></div>
+    </div>
+  `;
+
+  document.getElementById('browse-progress-bar').addEventListener('click', (e) => {
+    const rect = e.target.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    currentBrowseStep = Math.floor(pct * currentBrowseSteps.length);
+    renderBrowseStep();
+  });
+
+  document.getElementById('browse-screenshot').addEventListener('click', (e) => {
+    e.target.classList.toggle('zoomed');
+  });
+
+  renderBrowseStep();
+}
+
+function renderBrowseStep() {
+  if (!currentBrowseSteps.length) return;
+  const step = currentBrowseSteps[currentBrowseStep];
+
+  document.getElementById('browse-step-counter').textContent =
+    `Step ${currentBrowseStep + 1} / ${currentBrowseSteps.length}`;
+
+  const pct = ((currentBrowseStep + 1) / currentBrowseSteps.length) * 100;
+  document.getElementById('browse-progress-fill').style.width = pct + '%';
+
+  const img = document.getElementById('browse-screenshot');
+  // Show pre-action screenshot: for step N>0, show step N-1's screenshot (what the agent saw)
+  if (currentBrowseStep > 0 && currentBrowseSteps[currentBrowseStep - 1]) {
+    img.src = currentBrowseSteps[currentBrowseStep - 1].screenshot_path || '';
+  } else {
+    img.src = step.screenshot_path || '';
+  }
+  img.classList.remove('zoomed');
+
+  const infoPanel = document.getElementById('browse-info-panel');
+  let actionHtml = '';
+  if (step.action) {
+    const actionInput = step.action_input || step.action.input || step.action;
+    actionHtml = `<div class="info-section">
+      <h4>Action (${step.action_type || step.action?.action_type || ''})</h4>
+      <pre>${escapeHtml(JSON.stringify(actionInput, null, 2))}</pre>
+    </div>`;
+  }
+
+  let reasoningHtml = '';
+  if (step.reasoning) {
+    reasoningHtml = `<div class="info-section">
+      <h4>Reasoning</h4>
+      <p>${escapeHtml(step.reasoning)}</p>
+    </div>`;
+  }
+
+  let responseHtml = '';
+  if (step.response) {
+    responseHtml = `<div class="info-section">
+      <h4>Response</h4>
+      <p>${escapeHtml(step.response)}</p>
+    </div>`;
+  }
+
+  let taskHtml = '';
+  if (currentBrowseRun && currentBrowseStep === 0) {
+    const task = currentBrowseRun;
+    taskHtml = `<div class="info-section">
+      <h4>Task</h4>
+      <p style="font-size:12px">${escapeHtml(task.intent || 'No description')}</p>
+      ${task.website ? '<p style="font-size:11px;color:var(--text-dim);margin-top:4px">Website: ' + escapeHtml(task.website) + '</p>' : ''}
+      ${task.level ? '<p style="font-size:11px;color:var(--text-dim)">Level: ' + escapeHtml(task.level) + '</p>' : ''}
+      ${task.score !== null && task.score !== undefined ? '<p style="font-size:11px;margin-top:4px"><strong>Eval:</strong> <span style="color:' + (task.score > 0 ? 'var(--green)' : 'var(--red)') + '">' + (task.score > 0 ? 'PASS' : 'FAIL') + '</span></p>' : ''}
+    </div>`;
+  }
+
+  // Judge evaluation (shown on all steps)
+  let judgeHtml = '';
+  if (currentBrowseSummary.final_reasoning || currentBrowseSummary.key_points) {
+    judgeHtml = '<div class="info-section"><h4>Judge Evaluation</h4>';
+    if (currentBrowseSummary.key_points) {
+      judgeHtml += '<details><summary style="font-size:11px;color:var(--accent);cursor:pointer">Key Points</summary><pre style="font-size:11px;margin-top:4px;white-space:pre-wrap">' + escapeHtml(currentBrowseSummary.key_points) + '</pre></details>';
+    }
+    if (currentBrowseSummary.final_reasoning) {
+      judgeHtml += '<details><summary style="font-size:11px;color:var(--accent);cursor:pointer">Judge Reasoning</summary><p style="font-size:11px;margin-top:4px;line-height:1.4">' + escapeHtml(currentBrowseSummary.final_reasoning) + '</p></details>';
+    }
+    if (currentBrowseSummary.blocked) {
+      judgeHtml += '<p style="font-size:11px;color:var(--red);margin-top:4px">Blocked: ' + escapeHtml(currentBrowseSummary.blocked_reasoning || 'Yes') + '</p>';
+    }
+    judgeHtml += '</div>';
+  }
+
+  let metaHtml = `<div class="info-section">
+    <h4>Step ${step.step}</h4>
+    <p style="font-size:12px;color:var(--text-dim)">
+      Reward: ${step.reward || 0} | Done: ${step.done ? 'Yes' : 'No'}
+    </p>
+  </div>`;
+
+  infoPanel.innerHTML = taskHtml + judgeHtml + metaHtml + actionHtml + reasoningHtml + responseHtml;
+}
+
+function browseNav(dir) {
+  currentBrowseStep = Math.max(0, Math.min(currentBrowseSteps.length - 1, currentBrowseStep + dir));
+  renderBrowseStep();
+}
+
+// --- Annotate list ---
+function renderAnnotateList() {
+  const search = document.getElementById('annotate-search').value;
+  const model = document.getElementById('annotate-model-filter').value;
+  const source = document.getElementById('annotate-source-filter').value;
+  const status = document.getElementById('annotate-status-filter').value;
+  let filtered = filterRuns(search, source, status === 'all' ? 'all' : status, model);
+
+  // Sort unannotated first
+  if (status === 'unannotated') {
+    filtered.sort((a, b) => {
+      if (a.annotation_status !== b.annotation_status) {
+        return a.annotation_status === 'unannotated' ? -1 : 1;
+      }
+      return 0;
+    });
+  }
+
+  const container = document.getElementById('annotate-run-list');
+  container.innerHTML = '';
+
+  filtered.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'run-row';
+    if (currentAnnotateRun && currentAnnotateRun.run_id === r.run_id) row.classList.add('selected');
+
+    const scoreBadge = r.score !== null && r.score !== undefined
+      ? (r.score > 0 ? '<span class="badge badge-pass">PASS</span>' : '<span class="badge badge-fail">FAIL</span>')
+      : '<span class="badge badge-unknown">?</span>';
+    const annBadge = r.annotation_status === 'annotated'
+      ? '<span class="badge badge-annotated">done</span>'
+      : '<span class="badge badge-unannotated">todo</span>';
+
+    row.innerHTML = `
+      <span class="task-id" title="${escapeHtml(r.intent || r.task_id)}">${r.task_id.substring(0, 16)}...</span>
+      ${scoreBadge}
+      <span class="steps">${r.step_count}s</span>
+      ${annBadge}
+    `;
+    row.addEventListener('click', () => openAnnotateRun(r, row));
+    container.appendChild(row);
+  });
+}
+
+async function openAnnotateRun(run, rowEl) {
+  currentAnnotateRun = run;
+  currentAnnotateStep = 0;
+  stepAnnotations = {};
+  rubricGrades = {};
+  currentTaskRubric = [];
+
+  // Reset final assessment form
+  document.querySelectorAll('input[name="task-success"]').forEach(r => r.checked = false);
+  document.getElementById('failure-mode').value = '';
+  document.getElementById('task-reasoning').value = '';
+
+  document.querySelectorAll('#annotate-run-list .run-row').forEach(r => r.classList.remove('selected'));
+  if (rowEl) rowEl.classList.add('selected');
+
+  const data = await api(`/api/trajectory/${run.run_id}?source=${run.source}`);
+  currentAnnotateSteps = data.steps || [];
+
+  // Load existing annotations
+  const annData = await api(`/api/annotations/${run.run_id}`);
+  if (annData.step_annotations) {
+    annData.step_annotations.forEach(sa => {
+      stepAnnotations[sa.step] = {
+        verdict: sa.verdict,
+        note: sa.note,
+      };
+    });
+  }
+  if (annData.task_annotations && annData.task_annotations.length > 0) {
+    const ta = annData.task_annotations[0];
+    document.querySelector(`input[name="task-success"][value="${ta.success ? 'yes' : 'no'}"]`).checked = true;
+    document.getElementById('failure-mode').value = ta.failure_mode || '';
+    document.getElementById('task-reasoning').value = ta.reasoning || '';
+    if (ta.annotator) {
+      document.getElementById('annotator-name').value = ta.annotator;
+    }
+    // Load saved rubric grades (new format: {grade, step})
+    if (ta.rubric_json) {
+      try {
+        const saved = JSON.parse(ta.rubric_json);
+        if (Array.isArray(saved)) {
+          saved.forEach(r => {
+            if (r.grade && r.grade !== 'ungraded') {
+              rubricGrades[r.id] = { grade: r.grade, step: r.step !== undefined ? r.step : null };
+            }
+          });
+        }
+      } catch(e) {}
+    }
+  }
+
+  // Show controls
+  document.getElementById('annotate-controls').style.display = 'flex';
+
+  // Show task info
+  const taskInfoEl = document.getElementById('annotate-task-info');
+  const taskData = data.task_info || {};
+  taskInfoEl.innerHTML = `
+    <h4>Task</h4>
+    <p style="font-size:12px">${escapeHtml(taskData.confirmed_task || run.intent || 'No description')}</p>
+    ${taskData.website ? '<p style="font-size:11px;color:var(--text-dim);margin-top:4px">Website: ' + escapeHtml(taskData.website) + '</p>' : ''}
+    ${run.score !== null && run.score !== undefined ? '<p style="font-size:11px;margin-top:4px"><strong>Eval:</strong> <span style="color:' + (run.score > 0 ? 'var(--green)' : 'var(--red)') + '">' + (run.score > 0 ? 'PASS' : 'FAIL') + '</span></p>' : ''}
+  `;
+
+  // Show eval judge reasoning if available
+  const summaryInfo = data.summary_info || {};
+  const judgeEl = document.getElementById('annotate-judge-info');
+  if (summaryInfo.final_reasoning || summaryInfo.key_points) {
+    let judgeHtml = '<h4>Judge Evaluation</h4>';
+    if (summaryInfo.key_points) {
+      judgeHtml += '<details style="margin-top:4px"><summary style="font-size:11px;color:var(--accent);cursor:pointer">Key Points</summary><pre style="font-size:11px;margin-top:4px;white-space:pre-wrap">' + escapeHtml(summaryInfo.key_points) + '</pre></details>';
+    }
+    if (summaryInfo.final_reasoning) {
+      judgeHtml += '<details style="margin-top:4px"><summary style="font-size:11px;color:var(--accent);cursor:pointer">Judge Reasoning</summary><p style="font-size:11px;margin-top:4px;line-height:1.4">' + escapeHtml(summaryInfo.final_reasoning) + '</p></details>';
+    }
+    if (summaryInfo.blocked) {
+      judgeHtml += '<p style="font-size:11px;color:var(--red);margin-top:4px">Blocked: ' + escapeHtml(summaryInfo.blocked_reasoning || 'Yes') + '</p>';
+    }
+    judgeEl.innerHTML = judgeHtml;
+    judgeEl.style.display = 'block';
+  } else {
+    judgeEl.innerHTML = '';
+    judgeEl.style.display = 'none';
+  }
+
+  // Set up rubric data (items rendered per-step by renderRubricItems)
+  currentTaskRubric = taskData.rubric || [];
+  const rubricSection = document.getElementById('rubric-grading-section');
+  if (currentTaskRubric.length > 0) {
+    rubricSection.style.display = 'block';
+  } else {
+    rubricSection.style.display = 'none';
+    document.getElementById('rubric-items-container').innerHTML = '';
+  }
+
+  // Start timer
+  startAnnotateTimer();
+
+  renderAnnotateSlideshow();
+}
+
+function renderAnnotateSlideshow() {
+  const panel = document.getElementById('annotate-slideshow');
+  if (!currentAnnotateSteps.length) {
+    panel.innerHTML = '<div class="slideshow-empty">No steps found</div>';
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="slideshow-header">
+      <div class="slideshow-nav">
+        <button class="secondary" onclick="annotateNav(-1)">&larr;</button>
+        <button class="secondary" onclick="annotateNav(1)">&rarr;</button>
+      </div>
+      <span class="step-counter" id="annotate-step-counter"></span>
+      <div class="progress-bar-container" id="annotate-progress-bar">
+        <div class="progress-bar-fill" id="annotate-progress-fill"></div>
+      </div>
+    </div>
+    <div class="slideshow-body">
+      <div class="screenshot-area">
+        <img id="annotate-screenshot" src="" alt="Screenshot">
+      </div>
+      <div class="info-panel" id="annotate-info-panel"></div>
+    </div>
+  `;
+
+  document.getElementById('annotate-progress-bar').addEventListener('click', (e) => {
+    const rect = e.target.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    saveCurrentStepAnnotation();
+    currentAnnotateStep = Math.floor(pct * currentAnnotateSteps.length);
+    renderAnnotateStep();
+  });
+
+  document.getElementById('annotate-screenshot').addEventListener('click', (e) => {
+    e.target.classList.toggle('zoomed');
+  });
+
+  renderAnnotateStep();
+}
+
+function renderAnnotateStep() {
+  if (!currentAnnotateSteps.length) return;
+  const step = currentAnnotateSteps[currentAnnotateStep];
+  const isLastStep = currentAnnotateStep === currentAnnotateSteps.length - 1;
+
+  document.getElementById('annotate-step-counter').textContent =
+    `Step ${currentAnnotateStep + 1} / ${currentAnnotateSteps.length}`;
+
+  const pct = ((currentAnnotateStep + 1) / currentAnnotateSteps.length) * 100;
+  document.getElementById('annotate-progress-fill').style.width = pct + '%';
+
+  // Show pre-action screenshot: for step N>0, show step N-1's screenshot (what the agent saw)
+  if (currentAnnotateStep > 0 && currentAnnotateSteps[currentAnnotateStep - 1]) {
+    document.getElementById('annotate-screenshot').src = currentAnnotateSteps[currentAnnotateStep - 1].screenshot_path || '';
+  } else {
+    document.getElementById('annotate-screenshot').src = step.screenshot_path || '';
+  }
+
+  // Info panel
+  const infoPanel = document.getElementById('annotate-info-panel');
+  let actionHtml = '';
+  if (step.action) {
+    const actionInput = step.action_input || step.action.input || step.action;
+    actionHtml = `<div class="info-section">
+      <h4>Action (${step.action_type || ''})</h4>
+      <pre>${escapeHtml(JSON.stringify(actionInput, null, 2))}</pre>
+    </div>`;
+  }
+  let responseHtml = '';
+  if (step.response) {
+    responseHtml = `<div class="info-section">
+      <h4>Response</h4>
+      <p>${escapeHtml(step.response)}</p>
+    </div>`;
+  }
+  let reasoningHtml = '';
+  if (step.reasoning) {
+    reasoningHtml = `<div class="info-section">
+      <h4>Reasoning</h4>
+      <p>${escapeHtml(step.reasoning)}</p>
+    </div>`;
+  }
+
+  infoPanel.innerHTML = `
+    <div class="info-section">
+      <h4>Step ${step.step}</h4>
+      <p style="font-size:12px;color:var(--text-dim)">Reward: ${step.reward || 0} | Done: ${step.done ? 'Yes' : 'No'}</p>
+    </div>
+    ${actionHtml}${reasoningHtml}${responseHtml}
+  `;
+
+  // Restore step annotation
+  const sa = stepAnnotations[step.step] || {};
+  document.querySelectorAll('input[name="step-verdict"]').forEach(r => r.checked = r.value === (sa.verdict || ''));
+  document.getElementById('step-note').value = sa.note || '';
+
+  // Rubric is always visible; final assessment only on last step
+  document.getElementById('final-assessment-section').style.display = isLastStep ? 'block' : 'none';
+  if (currentTaskRubric.length > 0) {
+    document.getElementById('rubric-grading-section').style.display = 'block';
+    renderRubricItems();
+  }
+}
+
+function annotateNav(dir) {
+  saveCurrentStepAnnotation();
+  currentAnnotateStep = Math.max(0, Math.min(currentAnnotateSteps.length - 1, currentAnnotateStep + dir));
+  renderAnnotateStep();
+}
+
+function saveCurrentStepAnnotation() {
+  if (!currentAnnotateSteps.length) return;
+  const step = currentAnnotateSteps[currentAnnotateStep];
+  const verdict = document.querySelector('input[name="step-verdict"]:checked')?.value || '';
+  const note = document.getElementById('step-note').value;
+
+  if (verdict || note) {
+    stepAnnotations[step.step] = { verdict, note };
+  }
+}
+
+function gradeRubric(rubricId, grade) {
+  const currentStep = currentAnnotateSteps[currentAnnotateStep]?.step ?? currentAnnotateStep;
+  // Toggle: clicking same grade again deselects
+  if (rubricGrades[rubricId] && rubricGrades[rubricId].grade === grade) {
+    delete rubricGrades[rubricId];
+  } else {
+    rubricGrades[rubricId] = { grade, step: currentStep };
+  }
+  renderRubricItems();
+}
+
+function renderRubricItems() {
+  const container = document.getElementById('rubric-items-container');
+  if (!currentTaskRubric.length) { container.innerHTML = ''; return; }
+
+  container.innerHTML = currentTaskRubric.map(r => {
+    const rg = rubricGrades[r.id];
+    const grade = rg ? rg.grade : '';
+    const gradedStep = rg ? rg.step : null;
+    const stepLabel = gradedStep !== null ? ` @ step ${gradedStep}` : '';
+
+    return `
+      <div class="rubric-item ${grade}" id="rubric-item-${r.id}">
+        <span class="rubric-id">${escapeHtml(r.id)}</span>
+        <span class="rubric-req">${escapeHtml(r.requirement)}</span>
+        <div class="rubric-verify">${escapeHtml(r.verification || '')}</div>
+        <div class="rubric-btns">
+          <button class="${grade === 'pass' ? 'active-pass' : ''}"
+                  onclick="gradeRubric('${r.id}', 'pass')">Pass</button>
+          <button class="${grade === 'fail' ? 'active-fail' : ''}"
+                  onclick="gradeRubric('${r.id}', 'fail')">Fail</button>
+          ${grade ? '<span style="font-size:10px;color:var(--text-dim);margin-left:auto">' + escapeHtml(grade + stepLabel) + '</span>' : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function startAnnotateTimer() {
+  if (annotateTimer) clearInterval(annotateTimer);
+  annotateStartTime = Date.now();
+  annotateTimer = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - annotateStartTime) / 1000);
+    const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const ss = String(elapsed % 60).padStart(2, '0');
+    document.getElementById('annotate-timer').textContent = mm + ':' + ss;
+  }, 1000);
+}
+
+async function submitAnnotation() {
+  if (!currentAnnotateRun) return;
+  saveCurrentStepAnnotation();
+
+  const annotator = document.getElementById('annotator-name').value || 'anonymous';
+  localStorage.setItem('annotator_name', annotator);
+
+  const taskSuccess = document.querySelector('input[name="task-success"]:checked')?.value;
+  if (taskSuccess === undefined || taskSuccess === null) {
+    showToast('Please select Success: Yes or No before submitting');
+    return;
+  }
+
+  const duration = annotateStartTime ? (Date.now() - annotateStartTime) / 1000 : 0;
+
+  const payload = {
+    run_id: currentAnnotateRun.run_id,
+    task_id: currentAnnotateRun.task_id,
+    annotator,
+    step_annotations: Object.entries(stepAnnotations).map(([step, sa]) => ({
+      step: parseInt(step),
+      verdict: sa.verdict,
+      note: sa.note,
+    })),
+    task_annotation: {
+      success: taskSuccess === 'yes',
+      failure_mode: document.getElementById('failure-mode').value,
+      reasoning: document.getElementById('task-reasoning').value,
+      duration_seconds: duration,
+      rubric: currentTaskRubric.map(r => {
+        const rg = rubricGrades[r.id];
+        return {
+          id: r.id,
+          requirement: r.requirement,
+          grade: rg ? rg.grade : 'ungraded',
+          step: rg ? rg.step : null,
+        };
+      }),
+    },
+  };
+
+  await api('/api/annotations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  showToast('Annotation saved for ' + currentAnnotateRun.task_id.substring(0, 12));
+  if (annotateTimer) clearInterval(annotateTimer);
+
+  // Update local run status immediately
+  currentAnnotateRun.annotation_status = 'annotated';
+  const runInList = allRuns.find(r => r.run_id === currentAnnotateRun.run_id);
+  if (runInList) runInList.annotation_status = 'annotated';
+
+  await loadRuns();
+}
+
+// --- Record Demo ---
+function startRecording() {
+  const taskId = document.getElementById('record-task-id').value;
+  const url = document.getElementById('record-url').value;
+  const annotator = document.getElementById('record-annotator').value;
+  if (!taskId || !url || !annotator) {
+    showToast('Please select a task, fill in URL, and your name');
+    return;
+  }
+  localStorage.setItem('annotator_name', annotator);
+
+  const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  recordWs = new WebSocket(`${wsProtocol}//${location.host}/ws/record`);
+  recordSteps = [];
+
+  recordWs.onopen = () => {
+    recordWs.send(JSON.stringify({
+      type: 'start',
+      url,
+      task_id: taskId,
+      annotator,
+    }));
+  };
+
+  recordWs.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'recording_started' || msg.type === 'screenshot') {
+      updateRecordScreenshot(msg);
+    } else if (msg.type === 'recording_stopped') {
+      showToast('Recording saved to ' + msg.task_dir);
+      resetRecordUI();
+      loadRuns(true);
+    } else if (msg.type === 'error') {
+      showToast('Error: ' + msg.message);
+      // If it's a browser launch error, show helpful message
+      if (msg.message.includes('Executable') || msg.message.includes('playwright')) {
+        showToast('Run: pip install playwright && playwright install chromium');
+      }
+      resetRecordUI();
+    }
+  };
+
+  recordWs.onerror = () => {
+    showToast('WebSocket connection error');
+    resetRecordUI();
+  };
+  recordWs.onclose = () => { recordWs = null; };
+
+  // Show recording UI
+  document.getElementById('record-start-btn').style.display = 'none';
+  document.getElementById('record-action-palette').style.display = 'flex';
+  document.getElementById('record-sidebar').style.display = 'block';
+}
+
+function updateRecordScreenshot(msg) {
+  const area = document.getElementById('record-screenshot-area');
+  let img = area.querySelector('img');
+  if (!img) {
+    area.innerHTML = '<div class="crosshair" id="record-crosshair"></div><div class="coord-tooltip" id="record-coord-tooltip"></div>';
+    img = document.createElement('img');
+    img.addEventListener('click', handleRecordImageClick);
+    img.addEventListener('mousemove', handleRecordImageMouseMove);
+    area.prepend(img);
+  }
+  img.src = 'data:image/png;base64,' + msg.image_b64;
+
+  recordSteps.push(msg);
+  renderRecordSteps();
+}
+
+function handleRecordImageClick(e) {
+  const img = e.target;
+  const rect = img.getBoundingClientRect();
+  const scaleX = 1280 / rect.width;
+  const scaleY = 720 / rect.height;
+  const realX = Math.round((e.clientX - rect.left) * scaleX);
+  const realY = Math.round((e.clientY - rect.top) * scaleY);
+  recordClickCoords = { x: realX, y: realY };
+  document.getElementById('record-click-coords').textContent = `(${realX}, ${realY})`;
+
+  const crosshair = document.getElementById('record-crosshair');
+  const tooltip = document.getElementById('record-coord-tooltip');
+  const parentRect = img.parentElement.getBoundingClientRect();
+  crosshair.style.display = 'block';
+  crosshair.style.left = (e.clientX - parentRect.left) + 'px';
+  crosshair.style.top = (e.clientY - parentRect.top) + 'px';
+  tooltip.style.display = 'block';
+  tooltip.style.left = (e.clientX - parentRect.left + 15) + 'px';
+  tooltip.style.top = (e.clientY - parentRect.top - 10) + 'px';
+  tooltip.textContent = `(${realX}, ${realY})`;
+}
+
+function handleRecordImageMouseMove(e) {
+  const img = e.target;
+  const rect = img.getBoundingClientRect();
+  const scaleX = 1280 / rect.width;
+  const scaleY = 720 / rect.height;
+  const realX = Math.round((e.clientX - rect.left) * scaleX);
+  const realY = Math.round((e.clientY - rect.top) * scaleY);
+
+  const tooltip = document.getElementById('record-coord-tooltip');
+  const parentRect = img.parentElement.getBoundingClientRect();
+  tooltip.style.display = 'block';
+  tooltip.style.left = (e.clientX - parentRect.left + 15) + 'px';
+  tooltip.style.top = (e.clientY - parentRect.top - 10) + 'px';
+  tooltip.textContent = `(${realX}, ${realY})`;
+}
+
+function renderRecordSteps() {
+  const list = document.getElementById('record-steps-list');
+  list.innerHTML = '';
+  recordSteps.forEach((s, i) => {
+    const div = document.createElement('div');
+    div.className = 'step-thumb';
+    div.innerHTML = `
+      <img src="data:image/png;base64,${s.image_b64}" alt="Step ${s.step}">
+      <span>Step ${s.step}</span>
+    `;
+    list.appendChild(div);
+  });
+  list.scrollTop = list.scrollHeight;
+}
+
+function sendClickAction() {
+  if (!recordWs || !recordClickCoords) return;
+  recordWs.send(JSON.stringify({
+    type: 'action',
+    action: { type: 'click', x: recordClickCoords.x, y: recordClickCoords.y },
+  }));
+  document.getElementById('record-crosshair').style.display = 'none';
+}
+
+function sendTypeAction() {
+  if (!recordWs) return;
+  const text = document.getElementById('record-type-text').value;
+  if (!text) return;
+  recordWs.send(JSON.stringify({
+    type: 'action',
+    action: { type: 'type', text },
+  }));
+  document.getElementById('record-type-text').value = '';
+}
+
+function getScrollAmount() {
+  return parseInt(document.getElementById('record-scroll-amount').value) || 300;
+}
+
+function sendScrollAction(dx, dy) {
+  if (!recordWs) return;
+  recordWs.send(JSON.stringify({
+    type: 'action',
+    action: { type: 'scroll', dx, dy },
+  }));
+}
+
+function sendNavAction() {
+  if (!recordWs) return;
+  const url = document.getElementById('record-nav-url').value;
+  if (!url) return;
+  recordWs.send(JSON.stringify({
+    type: 'action',
+    action: { type: 'goto', url },
+  }));
+}
+
+function sendKeyAction() {
+  if (!recordWs) return;
+  const key = document.getElementById('record-key-select').value;
+  recordWs.send(JSON.stringify({
+    type: 'action',
+    action: { type: 'key_press', key },
+  }));
+}
+
+function sendTerminateAction() {
+  if (!recordWs) return;
+  const response = document.getElementById('record-terminate-response').value || '';
+
+  // Send terminate as an action step (recorded in traj.jsonl), then stop
+  recordWs.send(JSON.stringify({
+    type: 'action',
+    action: { type: 'terminate', response },
+  }));
+
+  // Then stop the recording
+  setTimeout(() => {
+    if (recordWs) {
+      recordWs.send(JSON.stringify({
+        type: 'stop',
+        success: true,
+        answer: response,
+      }));
+    }
+  }, 600);
+}
+
+function resetRecordUI() {
+  document.getElementById('record-start-btn').style.display = 'inline-block';
+  document.getElementById('record-action-palette').style.display = 'none';
+  document.getElementById('record-sidebar').style.display = 'none';
+  document.getElementById('record-screenshot-area').innerHTML =
+    '<div style="color:var(--text-dim)">Start a recording to see the browser</div>' +
+    '<div class="crosshair" id="record-crosshair"></div>' +
+    '<div class="coord-tooltip" id="record-coord-tooltip"></div>';
+  recordSteps = [];
+}
+
+// --- Dashboard ---
+async function loadDashboard() {
+  const data = await api('/api/dashboard');
+
+  const progressPct = data.total_runs > 0 ? (data.annotated / data.total_runs * 100) : 0;
+  document.getElementById('dash-progress').innerHTML = `
+    <div class="dash-big-num">${data.annotated} / ${data.total_runs}</div>
+    <div class="dash-progress"><div class="dash-progress-fill" style="width:${progressPct}%"></div></div>
+    <span style="font-size:12px;color:var(--text-dim)">${progressPct.toFixed(1)}% annotated</span>
+  `;
+
+  document.getElementById('dash-run-stats').innerHTML = `
+    <p>Agent runs: <strong>${data.agent_runs}</strong></p>
+    <p>Human demos: <strong>${data.demo_runs}</strong></p>
+    <p>Total: <strong>${data.total_runs}</strong></p>
+  `;
+
+  const modelStats = data.model_stats || {};
+  let modelHtml = '<table><tr><th>Model</th><th>Total</th><th>Annotated</th><th>Pass Rate</th><th>Avg Score</th></tr>';
+  for (const [model, stats] of Object.entries(modelStats)) {
+    modelHtml += `<tr>
+      <td>${escapeHtml(model)}</td>
+      <td>${stats.total}</td>
+      <td>${stats.annotated}</td>
+      <td>${(stats.pass_rate * 100).toFixed(1)}%</td>
+      <td>${stats.avg_score.toFixed(3)}</td>
+    </tr>`;
+  }
+  modelHtml += '</table>';
+  document.getElementById('dash-model-table').innerHTML = modelHtml;
+
+  const modes = data.failure_modes || {};
+  const maxCount = Math.max(...Object.values(modes), 1);
+  let modesHtml = '';
+  for (const [mode, count] of Object.entries(modes)) {
+    const pct = (count / maxCount) * 100;
+    modesHtml += `<div class="bar-row">
+      <span class="bar-label">${escapeHtml(mode)}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <span class="bar-value">${count}</span>
+    </div>`;
+  }
+  document.getElementById('dash-failure-modes').innerHTML = modesHtml || '<p style="color:var(--text-dim)">No annotations yet</p>';
+
+  const demoAnn = data.demo_annotators || {};
+  let demoHtml = `<p>Total demos: <strong>${data.demo_runs}</strong></p>`;
+  for (const [ann, count] of Object.entries(demoAnn)) {
+    demoHtml += `<p>${escapeHtml(ann)}: ${count} demos</p>`;
+  }
+  document.getElementById('dash-demo-stats').innerHTML = demoHtml;
+
+  const recent = data.recent_annotations || [];
+  if (recent.length) {
+    let recentHtml = '<table><tr><th>Time</th><th>Annotator</th><th>Run</th><th>Success</th></tr>';
+    recent.forEach(r => {
+      recentHtml += `<tr>
+        <td style="font-size:11px">${r.timestamp || ''}</td>
+        <td>${escapeHtml(r.annotator || '')}</td>
+        <td style="font-family:monospace;font-size:11px">${escapeHtml((r.run_id || '').split('/').pop().substring(0, 12))}</td>
+        <td>${r.success ? '<span class="badge badge-pass">PASS</span>' : '<span class="badge badge-fail">FAIL</span>'}</td>
+      </tr>`;
+    });
+    recentHtml += '</table>';
+    document.getElementById('dash-recent').innerHTML = recentHtml;
+  } else {
+    document.getElementById('dash-recent').innerHTML = '<p style="color:var(--text-dim)">No annotations yet</p>';
+  }
+}
+
+// --- Keyboard navigation ---
+function handleKeyNav(e) {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+  const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+  if (activeTab === 'browse') {
+    if (e.key === 'ArrowLeft') { e.preventDefault(); browseNav(-1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); browseNav(1); }
+  } else if (activeTab === 'annotate') {
+    if (e.key === 'ArrowLeft') { e.preventDefault(); annotateNav(-1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); annotateNav(1); }
+  }
+}
+
+// --- Utilities ---
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function showToast(msg) {
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+</script>
+</body>
+</html>

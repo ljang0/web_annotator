@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+annotations/
+human_demos/
+*.db
+.env
