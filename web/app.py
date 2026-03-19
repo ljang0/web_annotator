@@ -524,10 +524,23 @@ async def api_trajectory(run_id: str, source: str = Query(default="agent")):
     # Extract task_id from run_id (last path segment for agent runs)
     task_id = run_id.split("/")[-1] if "/" in run_id else run_id
     task_info = TASKS_BY_ID.get(task_id, {})
-    # Use eval_results (detailed) or summary as fallback
-    eval_info = EVAL_RESULTS_BY_TASK.get(task_id, {})
-    summary_info = SUMMARY_BY_TASK.get(task_id, {})
-    detail_info = eval_info if eval_info else summary_info
+
+    # Judge eval: only include if it belongs to THIS run
+    # Agent runs: look up from eval_results/summary by task_id
+    # Human demos: look for judge_eval.json in the demo dir (future support)
+    detail_info = {}
+    if source == "agent":
+        eval_info = EVAL_RESULTS_BY_TASK.get(task_id, {})
+        summary_info = SUMMARY_BY_TASK.get(task_id, {})
+        detail_info = eval_info if eval_info else summary_info
+    else:
+        # Future: human demos can have their own judge eval
+        demo_judge_file = DEMOS_DIR / run_id / "judge_eval.json"
+        if demo_judge_file.exists():
+            try:
+                detail_info = json.loads(demo_judge_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
 
     return {
         "run_id": run_id,
@@ -734,11 +747,13 @@ async def ws_record(ws: WebSocket):
                     "image_b64": screenshot_b64,
                     "url": session.current_url,
                     "title": session.page_title,
+                    "elapsed_seconds": session.elapsed_seconds,
                 })
             elif msg["type"] == "stop":
                 if session is None:
                     await ws.send_json({"type": "error", "message": "No active session"})
                     continue
+                duration = session.elapsed_seconds
                 task_dir = await session.stop(
                     success=msg.get("success", False),
                     answer=msg.get("answer"),
@@ -746,9 +761,17 @@ async def ws_record(ws: WebSocket):
                 await ws.send_json({
                     "type": "recording_stopped",
                     "task_dir": str(task_dir),
+                    "duration_seconds": duration,
                 })
                 break
     except Exception as e:
+        # WebSocket disconnect or other error — auto-finalize if recording
+        if session and session.task_dir:
+            try:
+                await session.stop(success=False, answer="[recording interrupted]")
+                print(f"Recording auto-saved on disconnect: {session.task_dir}")
+            except Exception:
+                pass
         try:
             await ws.send_json({"type": "error", "message": str(e)})
         except Exception:

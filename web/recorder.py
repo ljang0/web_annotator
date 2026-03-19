@@ -6,6 +6,7 @@ Output matches the agent run format: traj.jsonl + step_N_timestamp.png
 
 import base64
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -35,6 +36,8 @@ class DemoSession:
         self.annotator = ""
         self.start_url = ""
         self._traj_file = None
+        self._start_time = None
+        self._step_times = []  # elapsed seconds at each step
 
     async def start(self, url: str, task_id: str, annotator: str,
                     demos_dir: Path, viewport: tuple = (1280, 720)) -> str:
@@ -58,7 +61,9 @@ class DemoSession:
         self.page = await self.context.new_page()
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
-        await self.page.goto(url, wait_until="networkidle", timeout=30000)
+        await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        # Let the page render before taking the first screenshot
+        await self.page.wait_for_timeout(2000)
 
         # Create output directory (flat, like agent runs)
         self.task_dir = demos_dir / annotator / task_id
@@ -69,9 +74,14 @@ class DemoSession:
         self.task_id = task_id
         self.annotator = annotator
         self.start_url = url
+        self._start_time = time.monotonic()
+        self._step_times = []
 
         # Open traj.jsonl for appending
         self._traj_file = open(self.task_dir / "traj.jsonl", "w")
+
+        # Write initial metadata (updated progressively after each step)
+        self._write_metadata(in_progress=True)
 
         # Initial screenshot (step 0)
         screenshot_b64 = await self._take_screenshot()
@@ -108,7 +118,7 @@ class DemoSession:
             goto_url = action["url"]
             if not goto_url.startswith(("http://", "https://")):
                 goto_url = "https://" + goto_url
-            await self.page.goto(goto_url, wait_until="networkidle", timeout=30000)
+            await self.page.goto(goto_url, wait_until="domcontentloaded", timeout=60000)
         elif action_type == "key_press":
             await self.page.keyboard.press(action["key"])
         elif action_type == "hover":
@@ -143,6 +153,26 @@ class DemoSession:
         )
         return screenshot_b64
 
+    def _write_metadata(self, in_progress: bool = False,
+                         success: bool = False, answer: str = None):
+        """Write run_metadata.json. Called after every step for crash recovery."""
+        if not self.task_dir:
+            return
+        total_seconds = round(time.monotonic() - self._start_time, 2) if self._start_time else 0
+        (self.task_dir / "run_metadata.json").write_text(json.dumps({
+            "source": "human_demo",
+            "annotator": self.annotator,
+            "task_id": self.task_id,
+            "success": success,
+            "answer": answer,
+            "step_count": self.step_count,
+            "start_url": self.start_url,
+            "duration_seconds": total_seconds,
+            "step_times": self._step_times,
+            "in_progress": in_progress,
+            "timestamp": datetime.now().isoformat(),
+        }, indent=2))
+
     async def stop(self, success: bool, answer: str = None) -> Path:
         """
         Finalize recording. Write result.txt and run_metadata.json.
@@ -158,17 +188,8 @@ class DemoSession:
             "1.0" if success else "0.0"
         )
 
-        # run_metadata.json (extra info not in agent format, but useful)
-        (self.task_dir / "run_metadata.json").write_text(json.dumps({
-            "source": "human_demo",
-            "annotator": self.annotator,
-            "task_id": self.task_id,
-            "success": success,
-            "answer": answer,
-            "step_count": self.step_count,
-            "start_url": self.start_url,
-            "timestamp": datetime.now().isoformat(),
-        }, indent=2))
+        # Final metadata (in_progress=False)
+        self._write_metadata(in_progress=False, success=success, answer=answer)
 
         await self.close()
         return self.task_dir
@@ -262,6 +283,8 @@ class DemoSession:
                          action: dict | None, screenshot_file: str,
                          response: str = "", done: bool = False):
         """Write one line to traj.jsonl in agent-compatible format."""
+        elapsed = round(time.monotonic() - self._start_time, 2) if self._start_time else 0
+        self._step_times.append(elapsed)
         entry = {
             "step_num": step_num,
             "action_timestamp": timestamp,
@@ -271,9 +294,19 @@ class DemoSession:
             "done": done,
             "info": {},
             "screenshot_file": screenshot_file,
+            "elapsed_seconds": elapsed,
         }
         self._traj_file.write(json.dumps(entry) + "\n")
         self._traj_file.flush()
+
+        # Update metadata on disk after every step (crash recovery)
+        self._write_metadata(in_progress=True)
+
+    @property
+    def elapsed_seconds(self) -> float:
+        if self._start_time is None:
+            return 0
+        return round(time.monotonic() - self._start_time, 2)
 
     @property
     def current_url(self) -> str:

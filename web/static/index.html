@@ -714,6 +714,7 @@ td {
       <input type="text" id="record-url" placeholder="Start URL" style="width:240px">
       <input type="text" id="record-annotator" placeholder="Your name" style="width:120px">
       <button id="record-start-btn">Start Recording</button>
+      <span class="timer-display" id="record-timer" style="display:none">00:00</span>
     </div>
     <div class="record-body">
       <div class="record-screenshot-area" id="record-screenshot-area">
@@ -822,6 +823,8 @@ let rubricGrades = {};  // { rubric_id: { grade: 'pass'|'fail', step: number } }
 let currentTaskRubric = [];  // rubric items from task_info
 
 let recordWs = null;
+let recordTimer = null;
+let recordStartTime = null;
 let recordClickCoords = null;
 let recordSteps = [];
 
@@ -1171,7 +1174,7 @@ function renderBrowseStep() {
     </div>`;
   }
 
-  // Judge evaluation (shown on all steps)
+  // Judge evaluation (agent runs only)
   let judgeHtml = '';
   if (currentBrowseSummary.final_reasoning || currentBrowseSummary.key_points) {
     judgeHtml = '<div class="info-section"><h4>Judge Evaluation</h4>';
@@ -1603,9 +1606,21 @@ function startRecording() {
   recordWs.onmessage = (event) => {
     const msg = JSON.parse(event.data);
     if (msg.type === 'recording_started' || msg.type === 'screenshot') {
+      setRecordLoading(false);
       updateRecordScreenshot(msg);
+      // If we're waiting to stop after a terminate action, send stop now
+      if (recordWs && recordWs._pendingStop && msg.type === 'screenshot') {
+        const stopData = recordWs._pendingStop;
+        delete recordWs._pendingStop;
+        recordWs.send(JSON.stringify({
+          type: 'stop',
+          success: true,
+          answer: stopData.answer,
+        }));
+      }
     } else if (msg.type === 'recording_stopped') {
-      showToast('Recording saved to ' + msg.task_dir);
+      const dur = msg.duration_seconds ? ` (${Math.round(msg.duration_seconds)}s)` : '';
+      showToast('Recording saved' + dur);
       resetRecordUI();
       loadRuns(true);
     } else if (msg.type === 'error') {
@@ -1628,6 +1643,18 @@ function startRecording() {
   document.getElementById('record-start-btn').style.display = 'none';
   document.getElementById('record-action-palette').style.display = 'flex';
   document.getElementById('record-sidebar').style.display = 'block';
+
+  // Start timer
+  recordStartTime = Date.now();
+  const timerEl = document.getElementById('record-timer');
+  timerEl.style.display = 'inline';
+  if (recordTimer) clearInterval(recordTimer);
+  recordTimer = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - recordStartTime) / 1000);
+    const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const ss = String(elapsed % 60).padStart(2, '0');
+    timerEl.textContent = mm + ':' + ss;
+  }, 1000);
 }
 
 function updateRecordScreenshot(msg) {
@@ -1699,23 +1726,44 @@ function renderRecordSteps() {
   list.scrollTop = list.scrollHeight;
 }
 
+function setRecordLoading(loading) {
+  const palette = document.getElementById('record-action-palette');
+  if (loading) {
+    palette.style.opacity = '0.5';
+    palette.style.pointerEvents = 'none';
+    // Add loading overlay to screenshot area
+    let overlay = document.getElementById('record-loading-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'record-loading-overlay';
+      overlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.3);z-index:10;font-size:14px;color:white';
+      overlay.textContent = 'Executing action...';
+      document.getElementById('record-screenshot-area').appendChild(overlay);
+    }
+  } else {
+    palette.style.opacity = '1';
+    palette.style.pointerEvents = 'auto';
+    const overlay = document.getElementById('record-loading-overlay');
+    if (overlay) overlay.remove();
+  }
+}
+
+function sendRecordAction(action) {
+  if (!recordWs) return;
+  setRecordLoading(true);
+  recordWs.send(JSON.stringify({ type: 'action', action }));
+}
+
 function sendClickAction() {
-  if (!recordWs || !recordClickCoords) return;
-  recordWs.send(JSON.stringify({
-    type: 'action',
-    action: { type: 'click', x: recordClickCoords.x, y: recordClickCoords.y },
-  }));
+  if (!recordClickCoords) return;
+  sendRecordAction({ type: 'click', x: recordClickCoords.x, y: recordClickCoords.y });
   document.getElementById('record-crosshair').style.display = 'none';
 }
 
 function sendTypeAction() {
-  if (!recordWs) return;
   const text = document.getElementById('record-type-text').value;
   if (!text) return;
-  recordWs.send(JSON.stringify({
-    type: 'action',
-    action: { type: 'type', text },
-  }));
+  sendRecordAction({ type: 'type', text });
   document.getElementById('record-type-text').value = '';
 }
 
@@ -1724,52 +1772,36 @@ function getScrollAmount() {
 }
 
 function sendScrollAction(dx, dy) {
-  if (!recordWs) return;
-  recordWs.send(JSON.stringify({
-    type: 'action',
-    action: { type: 'scroll', dx, dy },
-  }));
+  sendRecordAction({ type: 'scroll', dx, dy });
 }
 
 function sendNavAction() {
-  if (!recordWs) return;
   const url = document.getElementById('record-nav-url').value;
   if (!url) return;
-  recordWs.send(JSON.stringify({
-    type: 'action',
-    action: { type: 'goto', url },
-  }));
+  sendRecordAction({ type: 'goto', url });
 }
 
 function sendKeyAction() {
-  if (!recordWs) return;
   const key = document.getElementById('record-key-select').value;
-  recordWs.send(JSON.stringify({
-    type: 'action',
-    action: { type: 'key_press', key },
-  }));
+  sendRecordAction({ type: 'key_press', key });
 }
 
 function sendTerminateAction() {
   if (!recordWs) return;
   const response = document.getElementById('record-terminate-response').value || '';
 
-  // Send terminate as an action step (recorded in traj.jsonl), then stop
+  // Show loading state
+  setRecordLoading(true);
+  showToast('Ending recording...');
+
+  // Flag so onmessage handler knows to send stop after the terminate screenshot comes back
+  recordWs._pendingStop = { answer: response };
+
+  // Send terminate as an action step (recorded in traj.jsonl)
   recordWs.send(JSON.stringify({
     type: 'action',
     action: { type: 'terminate', response },
   }));
-
-  // Then stop the recording
-  setTimeout(() => {
-    if (recordWs) {
-      recordWs.send(JSON.stringify({
-        type: 'stop',
-        success: true,
-        answer: response,
-      }));
-    }
-  }, 600);
 }
 
 function resetRecordUI() {
@@ -1781,6 +1813,16 @@ function resetRecordUI() {
     '<div class="crosshair" id="record-crosshair"></div>' +
     '<div class="coord-tooltip" id="record-coord-tooltip"></div>';
   recordSteps = [];
+  // Stop timer
+  if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
+  document.getElementById('record-timer').style.display = 'none';
+  document.getElementById('record-timer').textContent = '00:00';
+  // Reset terminate button
+  const termBtn = document.getElementById('record-terminate-btn');
+  termBtn.disabled = false;
+  termBtn.textContent = 'End Task';
+  document.getElementById('record-terminate-response').value = '';
+  setRecordLoading(false);
 }
 
 // --- Dashboard ---
