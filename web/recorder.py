@@ -125,12 +125,15 @@ class DemoSession:
             await self.page.mouse.move(action["x"], action["y"])
         elif action_type == "select":
             await self.page.select_option(action["selector"], action["value"])
+        elif action_type == "wait":
+            wait_ms = int(action.get("seconds", 2) * 1000)
+            await self.page.wait_for_timeout(wait_ms)
         elif action_type == "terminate":
             # No browser action — just record the final step
             pass
 
         # Wait for page to settle
-        if action_type != "terminate":
+        if action_type not in ("terminate", "wait"):
             await self.page.wait_for_timeout(500)
 
         self.step_count += 1
@@ -266,6 +269,11 @@ class DemoSession:
                 "action": "select",
                 "selector": action.get("selector", ""),
                 "value": action.get("value", ""),
+            }
+        elif action_type == "wait":
+            agent_input = {
+                "action": "wait",
+                "seconds": action.get("seconds", 2),
             }
         elif action_type == "terminate":
             agent_input = {

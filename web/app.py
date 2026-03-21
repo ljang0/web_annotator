@@ -690,6 +690,102 @@ async def api_dashboard():
     }
 
 
+@app.get("/api/settings")
+async def api_get_settings():
+    """Return current directory settings and their validity."""
+    playwright_available = True
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        playwright_available = False
+
+    return {
+        "results_dir": str(RESULTS_DIR),
+        "demos_dir": str(DEMOS_DIR),
+        "annotations_dir": str(ANNOTATIONS_DIR),
+        "tasks_file": str(TASKS_FILE),
+        "results_dir_exists": RESULTS_DIR.exists(),
+        "demos_dir_exists": DEMOS_DIR.exists(),
+        "annotations_dir_exists": ANNOTATIONS_DIR.exists(),
+        "tasks_file_exists": TASKS_FILE.exists(),
+        "playwright_available": playwright_available,
+    }
+
+
+@app.post("/api/settings")
+async def api_update_settings(data: dict = None):
+    """Update directory settings at runtime. Reloads tasks and invalidates caches."""
+    global RESULTS_DIR, DEMOS_DIR, ANNOTATIONS_DIR, TASKS_FILE
+    global TASKS_BY_ID, EVAL_RESULTS_BY_TASK, SUMMARY_BY_TASK
+    global _runs_cache
+
+    if data is None:
+        return JSONResponse({"error": "No data"}, status_code=400)
+
+    errors = []
+
+    if data.get("results_dir"):
+        new_path = Path(data["results_dir"]).resolve()
+        if not new_path.exists():
+            errors.append(f"Results dir not found: {new_path}")
+        else:
+            RESULTS_DIR = new_path
+
+    if data.get("demos_dir"):
+        new_path = Path(data["demos_dir"]).resolve()
+        new_path.mkdir(parents=True, exist_ok=True)
+        DEMOS_DIR = new_path
+
+    if data.get("annotations_dir"):
+        new_path = Path(data["annotations_dir"]).resolve()
+        new_path.mkdir(parents=True, exist_ok=True)
+        ANNOTATIONS_DIR = new_path
+
+    if data.get("tasks_file"):
+        new_path = Path(data["tasks_file"]).resolve()
+        if not new_path.exists():
+            errors.append(f"Tasks file not found: {new_path}")
+        else:
+            TASKS_FILE = new_path
+
+    if errors:
+        return JSONResponse({"error": "; ".join(errors)}, status_code=400)
+
+    # Reload tasks
+    TASKS_BY_ID.clear()
+    if TASKS_FILE.exists():
+        with open(TASKS_FILE) as f:
+            for t in json.load(f):
+                TASKS_BY_ID[t["task_id"]] = t
+
+    # Reload eval results
+    EVAL_RESULTS_BY_TASK.clear()
+    eval_file = RESULTS_DIR / "eval_results.json"
+    if eval_file.exists():
+        with open(eval_file) as f:
+            ed = json.load(f)
+            entries = ed.get("tasks", []) if isinstance(ed, dict) else ed
+            for entry in entries:
+                if isinstance(entry, dict) and "task_id" in entry:
+                    EVAL_RESULTS_BY_TASK[entry["task_id"]] = entry
+
+    SUMMARY_BY_TASK.clear()
+    summary_f = RESULTS_DIR / "summary" / "results.json"
+    if summary_f.exists():
+        with open(summary_f) as f:
+            sd = json.load(f)
+            task_list = sd.get("tasks", []) if isinstance(sd, dict) else sd
+            for entry in task_list:
+                if isinstance(entry, dict) and "task_id" in entry:
+                    SUMMARY_BY_TASK[entry["task_id"]] = entry
+
+    # Invalidate runs cache
+    _runs_cache = None
+
+    return {"status": "updated", "results_dir": str(RESULTS_DIR), "demos_dir": str(DEMOS_DIR),
+            "annotations_dir": str(ANNOTATIONS_DIR), "tasks_file": str(TASKS_FILE)}
+
+
 @app.get("/api/export")
 async def api_export():
     """Export all annotations as JSON."""
